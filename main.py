@@ -15,51 +15,54 @@ def allowed_file(filename):
     """Check if the uploaded file has an allowed extension (pptx)."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def extract_text_from_pptx_improved(file_path):
+def extract_text_from_pptx_markdown(file_path):
     """
-    Extracts text from a PPTX file with improved formatting.
+    Extracts text from a PPTX file and returns it in Markdown format.
     
     Enhancements:
-      - Processes each slide with a header ("Slide X:") only if there is non-empty content.
-      - Iterates over text frames and table cells.
-      - Skips slides that end up with no text content.
+      - Processes each slide and outputs a Markdown header ("## Slide X") only if there is non-empty content.
+      - Uses continuous slide numbering for slides that contain text.
+      - Extracts text from text frames and tables.
+      - Does not remove duplicate lines.
     
     :param file_path: Path to the PPTX file.
-    :return: A string with the structured text extracted from the presentation.
+    :return: A Markdown formatted string containing the structured text from the presentation.
     """
     prs = Presentation(file_path)
-    slides_text = []
+    slides_md = []
+    slide_num = 1  # Continuous numbering for non-empty slides
     
-    # Process each slide, numbering them for clarity.
-    for idx, slide in enumerate(prs.slides, start=1):
+    for slide in prs.slides:
         slide_lines = []
         for shape in slide.shapes:
-            # For shapes with a text_frame, iterate through paragraphs and runs.
+            # Process shapes with text frames.
             if hasattr(shape, "text_frame") and shape.text_frame is not None:
                 for paragraph in shape.text_frame.paragraphs:
                     paragraph_text = "".join(run.text for run in paragraph.runs).strip()
                     if paragraph_text:
                         slide_lines.append(paragraph_text)
-            # For table shapes, extract text cell by cell.
+            # Process table shapes.
             elif shape.shape_type == MSO_SHAPE_TYPE.TABLE:
                 table = shape.table
                 for row in table.rows:
-                    row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                    if row_cells:
-                        slide_lines.append(" | ".join(row_cells))
-        # Only add slide header if any text was collected.
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    if row_text:
+                        slide_lines.append(row_text)
+        # Add slide only if there is content.
         if slide_lines:
-            header = f"Slide {idx}:"
-            slides_text.append("\n".join([header] + slide_lines))
-    
-    return "\n\n".join(slides_text)
-
+            header = f"## Slide {slide_num}"
+            # Insert a blank line after the header for better Markdown readability.
+            slide_md = "\n".join([header, ""] + slide_lines)
+            slides_md.append(slide_md)
+            slide_num += 1
+            
+    return "\n\n".join(slides_md)
 
 @app.route('/extract-text', methods=['POST'])
 def extract_text():
     """
-    Endpoint to extract text from an uploaded PPTX file.
-
+    Endpoint to extract text from an uploaded PPTX file in Markdown format.
+    
     Expects a form-data POST request with the file attached under the key 'file'.
     """
     if 'file' not in request.files:
@@ -78,8 +81,8 @@ def extract_text():
         file.save(filepath)
 
         try:
-            # Use the improved extraction function.
-            extracted_text = extract_text_from_pptx_improved(filepath)
+            # Use the Markdown extraction function.
+            extracted_text = extract_text_from_pptx_markdown(filepath)
         except Exception as e:
             os.remove(filepath)
             return jsonify({'error': f'Error processing PPTX file: {str(e)}'}), 500
