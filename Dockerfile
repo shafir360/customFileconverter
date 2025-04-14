@@ -1,22 +1,16 @@
-FROM python:3.10-slim
+FROM python:3.9-slim
 
-# Install necessary dependencies
-RUN apt-get update && \
-    apt-get install -y libreoffice && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set the working directory
 WORKDIR /app
 
-# Copy application files
-COPY . .
-
-# Install Python dependencies
+# Copy requirements file and install Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the application port
+# Copy the application code
+COPY extract_text.py .
+
+# Expose a port (e.g., 8000)
 EXPOSE 8000
 
-# Start the application
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Start the Flask application
+CMD ["python", "extract_text.py"]
