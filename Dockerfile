@@ -9,7 +9,5 @@ WORKDIR /app
 COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Railway sets $PORT, but we'll default to 8000 for local
-ENV PORT 8000
-
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT}
+# CMD runs inside a shell to allow env var expansion
+CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
