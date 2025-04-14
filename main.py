@@ -1,22 +1,27 @@
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-from pptx import Presentation
-import io
+from fastapi.responses import FileResponse
+import os
+import uuid
+import subprocess
 
 app = FastAPI()
 
-@app.post("/extract-pptx-text")
-async def extract_pptx_text(file: UploadFile = File(...)):
-    if file.content_type != "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-        return JSONResponse(status_code=400, content={"error": "File must be a .pptx"})
+@app.post("/convert")
+async def convert_pptx_to_pdf(file: UploadFile = File(...)):
+    # Save uploaded PPTX
+    input_path = f"/tmp/{uuid.uuid4()}.pptx"
+    with open(input_path, "wb") as f:
+        f.write(await file.read())
 
-    contents = await file.read()
-    prs = Presentation(io.BytesIO(contents))
+    output_path = input_path.replace(".pptx", ".pdf")
 
-    text = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                text.append(shape.text)
+    # Convert using LibreOffice CLI
+    subprocess.run([
+        "libreoffice",
+        "--headless",
+        "--convert-to", "pdf",
+        "--outdir", "/tmp",
+        input_path
+    ], check=True)
 
-    return {"text": "\n".join(text)}
+    return FileResponse(output_path, media_type="application/pdf", filename="converted.pdf")
