@@ -1,14 +1,23 @@
-# PPTX Text Extraction Service
+---
+title: Flask
+description: A popular minimal server framework for Python
+tags:
+  - python
+  - flask
+---
 
-This is a simple Flask application that extracts text from a PowerPoint (.pptx) file.
+# Python Flask Example
 
-## Endpoints
+This is a [Flask](https://flask.palletsprojects.com/en/1.1.x/) app that serves a simple JSON response.
 
-- **GET /**: Returns a welcome message.
-- **POST /extract**: Accepts a PPTX file via form-data (key: `file`) and returns the extracted text as JSON.
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template/zUcpux)
 
-## Running Locally
+## ✨ Features
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
+- Python
+- Flask
+
+## 💁‍♀️ How to use
+
+- Install Python requirements `pip install -r requirements.txt`
+- Start the server for development `python3 main.py`
