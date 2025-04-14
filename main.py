@@ -1,27 +1,16 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import FileResponse
-import os
-import uuid
-import subprocess
+FROM python:3.10
 
-app = FastAPI()
+# Install LibreOffice
+RUN apt-get update && \
+    apt-get install -y libreoffice && \
+    apt-get clean
 
-@app.post("/convert")
-async def convert_pptx_to_pdf(file: UploadFile = File(...)):
-    # Save uploaded PPTX
-    input_path = f"/tmp/{uuid.uuid4()}.pptx"
-    with open(input_path, "wb") as f:
-        f.write(await file.read())
+# Set workdir and copy code
+WORKDIR /app
+COPY . /app
 
-    output_path = input_path.replace(".pptx", ".pdf")
+# Install Python deps
+RUN pip install --no-cache-dir -r requirements.txt
 
-    # Convert using LibreOffice CLI
-    subprocess.run([
-        "libreoffice",
-        "--headless",
-        "--convert-to", "pdf",
-        "--outdir", "/tmp",
-        input_path
-    ], check=True)
-
-    return FileResponse(output_path, media_type="application/pdf", filename="converted.pdf")
+# Run using shell so $PORT gets expanded
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
