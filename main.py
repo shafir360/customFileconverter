@@ -19,44 +19,41 @@ def extract_text_from_pptx_improved(file_path):
     """
     Extracts text from a PPTX file with improved formatting.
     
-    This function goes beyond a simple text grab:
-      - It processes each slide and adds a header (e.g. "Slide 1:")
-      - For each shape with a text frame, it iterates over all paragraphs and runs
-        to reconstruct the text while preserving basic formatting.
-      - It handles table shapes by iterating over table rows and cells.
+    Enhancements:
+      - Processes each slide with a header ("Slide X:") only if there is non-empty content.
+      - Iterates over text frames and table cells.
+      - Skips slides that end up with no text content.
     
     :param file_path: Path to the PPTX file.
-    :return: A string that contains the structured text extracted from the presentation.
+    :return: A string with the structured text extracted from the presentation.
     """
     prs = Presentation(file_path)
     slides_text = []
     
     # Process each slide, numbering them for clarity.
     for idx, slide in enumerate(prs.slides, start=1):
-        slide_content = [f"Slide {idx}:"]
+        slide_lines = []
         for shape in slide.shapes:
-            # If the shape has a text_frame attribute, process it.
+            # For shapes with a text_frame, iterate through paragraphs and runs.
             if hasattr(shape, "text_frame") and shape.text_frame is not None:
-                shape_text_lines = []
                 for paragraph in shape.text_frame.paragraphs:
-                    # Concatenate all runs in the paragraph to form a complete line.
-                    paragraph_text = "".join(run.text for run in paragraph.runs)
-                    if paragraph_text.strip():
-                        shape_text_lines.append(paragraph_text.strip())
-                if shape_text_lines:
-                    slide_content.append("\n".join(shape_text_lines))
-            # If the shape is a table, extract text from its cells.
+                    paragraph_text = "".join(run.text for run in paragraph.runs).strip()
+                    if paragraph_text:
+                        slide_lines.append(paragraph_text)
+            # For table shapes, extract text cell by cell.
             elif shape.shape_type == MSO_SHAPE_TYPE.TABLE:
                 table = shape.table
-                table_text = []
                 for row in table.rows:
                     row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
                     if row_cells:
-                        table_text.append(" | ".join(row_cells))
-                if table_text:
-                    slide_content.append("\n".join(table_text))
-        slides_text.append("\n".join(slide_content))
+                        slide_lines.append(" | ".join(row_cells))
+        # Only add slide header if any text was collected.
+        if slide_lines:
+            header = f"Slide {idx}:"
+            slides_text.append("\n".join([header] + slide_lines))
+    
     return "\n\n".join(slides_text)
+
 
 @app.route('/extract-text', methods=['POST'])
 def extract_text():
