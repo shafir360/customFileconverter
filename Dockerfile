@@ -5,13 +5,13 @@ RUN apt-get update && \
     apt-get install -y libreoffice && \
     apt-get clean
 
-# Copy project files
+# Set work directory and copy files
 WORKDIR /app
 COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port
-EXPOSE 3000
+# Railway will inject PORT as an environment variable
+ENV PORT=3000
 
-# Run FastAPI with uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
+# Use shell-style CMD for env substitution
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT
