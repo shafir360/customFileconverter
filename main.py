@@ -23,3 +23,12 @@ async def convert_pptx_to_pdf(file: UploadFile = File(...)):
     ], check=True)
 
     return FileResponse(output_path, media_type="application/pdf", filename="converted.pdf")
+
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "PPTX to PDF service is running"}

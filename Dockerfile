@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.10-slim
 
 # Install LibreOffice
 RUN apt-get update && \
@@ -6,8 +6,13 @@ RUN apt-get update && \
     apt-get clean
 
 WORKDIR /app
-COPY . /app
+
+COPY . .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# CMD runs inside a shell to allow env var expansion
-CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
+# Expose the port for clarity
+EXPOSE 8080
+
+# Start using shell form to ensure $PORT resolves
+ENTRYPOINT ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
