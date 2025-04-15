@@ -29,7 +29,8 @@ import os
 import uuid
 import requests
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Inches
+from PIL import Image as PILImage  # Make sure Pillow is installed
 
 # Set your n8n webhook URL here.
 WEBHOOK_URL = "https://primary-production-001f.up.railway.app/webhook/58f0ff48-56f8-4185-9ca9-6559e1867b60"  # <-- Update with your actual webhook URL
@@ -114,21 +115,26 @@ def generate_image_from_prompt(prompt, webhook_url=WEBHOOK_URL):
     else:
         raise Exception("Image generation webhook error. Status code: " + str(response.status_code))
 
-def build_word_document(json_obj, output_filename="generated_document.docx", include_images=False):
+def build_word_document(json_obj, output_filename="generated_document.docx", include_images=False, report_image_errors=False):
     """
     Create a nicely formatted Word document from the provided JSON object.
     
     The document includes different formatting styles based on the section type.
     Image blocks are processed only if include_images is True. When processing an image block,
     the function calls the `generate_image_from_prompt` function to retrieve the generated image,
-    inserts the image into the document with a caption (using the image prompt), and then removes
-    the temporary image file from the filesystem.
+    scales the image so it doesn't take up too much space (using a maximum width of 6 inches),
+    inserts the image with a caption (using the image prompt), and then removes the temporary image file.
+    
+    If an error occurs during image generation, and if report_image_errors is True, a placeholder
+    error message is added; otherwise, the image block is silently skipped.
     
     Parameters:
       json_obj (dict): The JSON object containing "title" and "sections" keys.
       output_filename (str): The name of the output Word document file.
       include_images (bool): Optional flag indicating if image sections should be included.
                              If False, image blocks will be skipped.
+      report_image_errors (bool): Optional flag indicating if image generation errors should be 
+                                  reported in the document. Defaults to False.
     
     Returns:
       str: The filename of the saved Word document.
@@ -187,16 +193,24 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                 try:
                     # Generate and download the image from the webhook
                     image_filename = generate_image_from_prompt(content)
-                    # Insert the image into the document.
-                    doc.add_picture(image_filename)
-                    # Add a caption below the image with the original prompt text.
-                    caption_para = doc.add_paragraph(content, style="Caption")
+                    
+                    # Use a with-statement to open the image and get dimensions, then ensure it is closed.
+                    max_width = 6.0  # Maximum width in inches.
+                    with PILImage.open(image_filename) as im:
+                        dpi = im.info.get("dpi", (96, 96))[0]  # Default to 96 DPI if not available.
+                        natural_width = im.size[0] / dpi  # Width in inches.
+                        width_inches = max_width if natural_width > max_width else natural_width
+                    
+                    # Insert the image with the width constraint.
+                    doc.add_picture(image_filename, width=Inches(width_inches))
+                    # Add a caption below the image with the original prompt as caption.
+                    doc.add_paragraph(content, style="Caption")
                     # Remove the temporary image file.
                     os.remove(image_filename)
                 except Exception as e:
-                    # In case of failure, add a placeholder paragraph indicating the error.
-                    error_para = doc.add_paragraph("Image could not be generated: " + str(e))
-            # If include_images is False, skip the image block.
+                    if report_image_errors:
+                        doc.add_paragraph("Image could not be generated: " + str(e))
+                    # Otherwise, skip the image block silently.
         elif section_type == "summary":
             para = doc.add_paragraph()
             run = para.add_run(content)
@@ -295,5 +309,6 @@ if __name__ == '__main__':
       ]
     }
     # Build the document using sample_json with image blocks enabled.
-    output_file = build_word_document(sample_json, output_filename="sample_output.docx", include_images=True)
+    # The parameter 'report_image_errors' is set to True for demonstration.
+    output_file = build_word_document(sample_json, output_filename="sample_output.docx", include_images=True, report_image_errors=True)
     print(f"Document '{output_file}' created successfully.")
