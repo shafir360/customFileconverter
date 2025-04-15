@@ -45,10 +45,11 @@ def generate_docx():
     Expected JSON input should have at least:
       - "title": A string for the document title.
       - "sections": An array of objects (each with a "type" and "content").
-
-    Optional parameter:
-      - "include_images": Boolean (default False). If set to False, image sections will be skipped.
-
+    
+    Optional parameters:
+      - "include_images": Boolean (default False). If false, image sections will be skipped.
+      - "webhook_url": String (optional). If provided, it will be used to generate images.
+      
     Returns:
       The generated Word document as an attachment.
     """
@@ -62,12 +63,18 @@ def generate_docx():
             return jsonify({'error': 'JSON must contain "title" and "sections" keys.'}), 400
 
         include_images = data.get('include_images', False)
+        webhook_url = data.get('webhook_url')  # Optional webhook URL; if not provided, images are skipped.
         output_filename = "generated_document.docx"
 
-        # Call the document generator business logic
-        generated_file = build_word_document(data, output_filename=output_filename, include_images=include_images)
+        # Call the document generator business logic with the provided webhook_url.
+        generated_file = build_word_document(
+            data,
+            output_filename=output_filename,
+            include_images=include_images,
+            webhook_url=webhook_url
+        )
 
-        # Return the generated file as an attachment
+        # Return the generated file as an attachment.
         return send_file(generated_file, as_attachment=True)
 
     except Exception as e:

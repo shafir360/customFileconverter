@@ -32,9 +32,6 @@ from docx import Document
 from docx.shared import Pt, Inches
 from PIL import Image as PILImage  # Make sure Pillow is installed
 
-# Set your n8n webhook URL here.
-WEBHOOK_URL = "https://primary-production-001f.up.railway.app/webhook/58f0ff48-56f8-4185-9ca9-6559e1867b60"  # <-- Update with your actual webhook URL
-
 def add_formatted_text(paragraph, text):
     """
     Parse the input text for simple markdown formatting markers for bold and highlight.
@@ -61,7 +58,7 @@ def add_formatted_text(paragraph, text):
         else:
             paragraph.add_run(part)
 
-def generate_image_from_prompt(prompt, webhook_url=WEBHOOK_URL):
+def generate_image_from_prompt(prompt, webhook_url):
     """
     Calls the n8n webhook to generate an image based on the provided prompt.
     
@@ -115,15 +112,16 @@ def generate_image_from_prompt(prompt, webhook_url=WEBHOOK_URL):
     else:
         raise Exception("Image generation webhook error. Status code: " + str(response.status_code))
 
-def build_word_document(json_obj, output_filename="generated_document.docx", include_images=False, report_image_errors=False):
+def build_word_document(json_obj, output_filename="generated_document.docx", include_images=False, report_image_errors=False, webhook_url=None):
     """
     Create a nicely formatted Word document from the provided JSON object.
     
     The document includes different formatting styles based on the section type.
-    Image blocks are processed only if include_images is True. When processing an image block,
-    the function calls the `generate_image_from_prompt` function to retrieve the generated image,
-    scales the image so it doesn't take up too much space (using a maximum width of 6 inches),
-    inserts the image with a caption (using the image prompt), and then removes the temporary image file.
+    Image blocks are processed only if include_images is True and a valid webhook_url is provided.
+    When processing an image block, the function calls the `generate_image_from_prompt` function to 
+    retrieve the generated image, scales the image so it doesn't take up too much space (using a 
+    maximum width of 6 inches), inserts the image with a caption (using the image prompt), and then 
+    removes the temporary image file.
     
     If an error occurs during image generation, and if report_image_errors is True, a placeholder
     error message is added; otherwise, the image block is silently skipped.
@@ -135,6 +133,7 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                              If False, image blocks will be skipped.
       report_image_errors (bool): Optional flag indicating if image generation errors should be 
                                   reported in the document. Defaults to False.
+      webhook_url (str): Optional webhook URL to generate images. If not provided, image sections are skipped.
     
     Returns:
       str: The filename of the saved Word document.
@@ -189,10 +188,11 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
             else:
                 doc.add_paragraph("Table data not in expected format.")
         elif section_type == "image":
-            if include_images:
+            # Process image only if include_images is True and a webhook_url is provided.
+            if include_images and webhook_url:
                 try:
-                    # Generate and download the image from the webhook
-                    image_filename = generate_image_from_prompt(content)
+                    # Generate and download the image from the webhook.
+                    image_filename = generate_image_from_prompt(content, webhook_url)
                     
                     # Use a with-statement to open the image and get dimensions, then ensure it is closed.
                     max_width = 6.0  # Maximum width in inches.
@@ -203,14 +203,14 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                     
                     # Insert the image with the width constraint.
                     doc.add_picture(image_filename, width=Inches(width_inches))
-                    # Add a caption below the image with the original prompt as caption.
+                    # Add a caption below the image using the original prompt as caption.
                     doc.add_paragraph(content, style="Caption")
                     # Remove the temporary image file.
                     os.remove(image_filename)
                 except Exception as e:
                     if report_image_errors:
                         doc.add_paragraph("Image could not be generated: " + str(e))
-                    # Otherwise, skip the image block silently.
+                    # Otherwise, silently skip the image.
         elif section_type == "summary":
             para = doc.add_paragraph()
             run = para.add_run(content)
@@ -308,7 +308,13 @@ if __name__ == '__main__':
         ]}
       ]
     }
-    # Build the document using sample_json with image blocks enabled.
-    # The parameter 'report_image_errors' is set to True for demonstration.
-    output_file = build_word_document(sample_json, output_filename="sample_output.docx", include_images=True, report_image_errors=True)
+    # To test image generation, you can supply a valid webhook URL via the 'webhook_url' parameter.
+    # Here, report_image_errors is set to True for demonstration.
+    output_file = build_word_document(
+        sample_json,
+        output_filename="sample_output.docx",
+        include_images=True,
+        report_image_errors=True,
+        webhook_url="https://your-valid-webhook-url.example.com/path"  # Replace with actual URL when testing
+    )
     print(f"Document '{output_file}' created successfully.")
