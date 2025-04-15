@@ -17,14 +17,22 @@ from a structured JSON object. The JSON object must follow the structure:
   ]
 }
 
-The module includes a helper function for parsing simple markdown syntax for **bold** and __highlighted__
-text, and a main function `build_word_document` that creates the document.
+This module includes:
+  - A helper function for parsing simple markdown syntax for **bold** and __highlighted__
+    text.
+  - A main function `build_word_document` that creates the document.
+  - A function `generate_image_from_prompt` that calls an n8n webhook to generate an image.
 """
 
 import re
+import os
+import uuid
+import requests
 from docx import Document
 from docx.shared import Pt
-import os
+
+# Set your n8n webhook URL here.
+WEBHOOK_URL = "https://primary-production-001f.up.railway.app/webhook/58f0ff48-56f8-4185-9ca9-6559e1867b60"  # <-- Update with your actual webhook URL
 
 def add_formatted_text(paragraph, text):
     """
@@ -33,7 +41,7 @@ def add_formatted_text(paragraph, text):
     - Bold syntax: **text**
     - Highlight syntax: __text__ (shown using italics to simulate a highlight)
     
-    This function splits the text based on these patterns and adds runs to the provided paragraph
+    Splits the text based on these patterns and adds runs to the provided paragraph
     with the appropriate formatting.
     
     Parameters:
@@ -48,16 +56,73 @@ def add_formatted_text(paragraph, text):
             run.bold = True
         elif part.startswith('__') and part.endswith('__'):
             run = paragraph.add_run(part[2:-2])
-            run.italic = True   # Italic is used here as a visual cue for a highlight.
+            run.italic = True   # Italic used as a visual cue for highlighting.
         else:
             paragraph.add_run(part)
+
+def generate_image_from_prompt(prompt, webhook_url=WEBHOOK_URL):
+    """
+    Calls the n8n webhook to generate an image based on the provided prompt.
+    
+    The webhook is expected to receive a JSON payload with the parameter "prompt".
+    It should return either:
+      1. Binary image data with an image content-type, or
+      2. A JSON response containing an "image_url" field.
+    
+    The function downloads and saves the image file locally and returns the filename.
+    
+    Parameters:
+      prompt (str): The description used to generate the image.
+      webhook_url (str): The URL of the n8n webhook.
+      
+    Returns:
+      str: The local filename of the downloaded/generated image.
+      
+    Raises:
+      Exception: If image generation fails or if the webhook response is not as expected.
+    """
+    payload = {"prompt": prompt}
+    response = requests.post(webhook_url, json=payload)
+    if response.status_code == 200:
+        content_type = response.headers.get('Content-Type', '')
+        # Case 1: Webhook returns binary image data directly.
+        if content_type.startswith("image/"):
+            ext = content_type.split("/")[-1]
+            image_filename = f"generated_image_{uuid.uuid4().hex}.{ext}"
+            with open(image_filename, "wb") as f:
+                f.write(response.content)
+            return image_filename
+        else:
+            # Case 2: Webhook returns JSON with an image URL.
+            try:
+                data = response.json()
+                image_url = data.get("image_url")
+                if not image_url:
+                    raise Exception("Webhook response JSON does not contain 'image_url'.")
+                image_response = requests.get(image_url)
+                if image_response.status_code == 200:
+                    # Determine file extension from URL or default to jpg.
+                    ext = image_url.split('.')[-1] if '.' in image_url else "jpg"
+                    image_filename = f"generated_image_{uuid.uuid4().hex}.{ext}"
+                    with open(image_filename, "wb") as f:
+                        f.write(image_response.content)
+                    return image_filename
+                else:
+                    raise Exception("Failed to download image from webhook-provided URL.")
+            except Exception as e:
+                raise Exception("Error processing webhook response: " + str(e))
+    else:
+        raise Exception("Image generation webhook error. Status code: " + str(response.status_code))
 
 def build_word_document(json_obj, output_filename="generated_document.docx", include_images=False):
     """
     Create a nicely formatted Word document from the provided JSON object.
     
     The document includes different formatting styles based on the section type.
-    Image blocks are processed only if include_images is True.
+    Image blocks are processed only if include_images is True. When processing an image block,
+    the function calls the `generate_image_from_prompt` function to retrieve the generated image,
+    inserts the image into the document with a caption (using the image prompt), and then removes
+    the temporary image file from the filesystem.
     
     Parameters:
       json_obj (dict): The JSON object containing "title" and "sections" keys.
@@ -84,7 +149,6 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
             para = doc.add_paragraph()
             add_formatted_text(para, content)
         elif section_type == "bullet":
-            # If content is a list, add each item as a bullet point; otherwise, use the content as a single bullet.
             if isinstance(content, list):
                 for item in content:
                     para = doc.add_paragraph(style="List Bullet")
@@ -93,7 +157,6 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                 para = doc.add_paragraph(style="List Bullet")
                 add_formatted_text(para, content)
         elif section_type == "numbered":
-            # Handle numbered lists similarly as bullet lists.
             if isinstance(content, list):
                 for item in content:
                     para = doc.add_paragraph(style="List Number")
@@ -102,16 +165,13 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                 para = doc.add_paragraph(style="List Number")
                 add_formatted_text(para, content)
         elif section_type == "quote":
-            # Use a pre-defined style for quotes.
             doc.add_paragraph(content, style="Intense Quote")
         elif section_type == "highlight":
-            # Add highlight text (here we simply add the text; advanced formatting can be applied if needed).
             para = doc.add_paragraph(content)
         elif section_type == "bold":
             para = doc.add_paragraph()
             add_formatted_text(para, content)
         elif section_type == "table":
-            # Expect the content to be a nested list representing rows and columns.
             if isinstance(content, list) and content and isinstance(content[0], list):
                 rows = len(content)
                 cols = len(content[0])
@@ -124,18 +184,24 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                 doc.add_paragraph("Table data not in expected format.")
         elif section_type == "image":
             if include_images:
-                # With no actual image file available, we add a placeholder indicating an image block.
-                para = doc.add_paragraph()
-                run = para.add_run("Image Placeholder: " + content)
-                run.italic = True
+                try:
+                    # Generate and download the image from the webhook
+                    image_filename = generate_image_from_prompt(content)
+                    # Insert the image into the document.
+                    doc.add_picture(image_filename)
+                    # Add a caption below the image with the original prompt text.
+                    caption_para = doc.add_paragraph(content, style="Caption")
+                    # Remove the temporary image file.
+                    os.remove(image_filename)
+                except Exception as e:
+                    # In case of failure, add a placeholder paragraph indicating the error.
+                    error_para = doc.add_paragraph("Image could not be generated: " + str(e))
             # If include_images is False, skip the image block.
         elif section_type == "summary":
-            # Render the summary in bold to emphasize key points.
             para = doc.add_paragraph()
             run = para.add_run(content)
             run.bold = True
         elif section_type == "questions":
-            # Format questions as bullet points.
             if isinstance(content, list):
                 for item in content:
                     para = doc.add_paragraph(style="List Bullet")
@@ -144,7 +210,6 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                 para = doc.add_paragraph(style="List Bullet")
                 add_formatted_text(para, content)
         elif section_type == "resources":
-            # Format resource references as bullet points.
             if isinstance(content, list):
                 for item in content:
                     para = doc.add_paragraph(style="List Bullet")
@@ -153,7 +218,6 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
                 para = doc.add_paragraph(style="List Bullet")
                 add_formatted_text(para, content)
         else:
-            # For any unrecognized section type, add as a regular paragraph.
             para = doc.add_paragraph()
             add_formatted_text(para, content)
 
@@ -167,14 +231,18 @@ if __name__ == '__main__':
       "title": "Hospitality Business Strategy: Strategic Directions Using Porter’s and Bowman’s Frameworks",
       "sections": [
         {"type": "heading", "content": "Strategic Direction: The Foundation of Competitive Advantage"},
-        {"type": "paragraph", "content": ("Strategic direction refers to the actionable plans an organization adopts to achieve "
-                                         "its long-term goals and vision. It aligns resources, operations, and people toward common "
-                                         "objectives, ensuring the organization thrives in a competitive environment. After analyzing "
-                                         "internal strengths, external opportunities, and industry competition, leaders must choose a "
-                                         "strategic direction that builds a **sustainable competitive advantage**—a unique position "
-                                         "that competitors cannot easily replicate.")},
-        {"type": "summary", "content": ("Strategic direction is crucial for aligning an organization's resources and operations "
-                                         "towards long-term goals, ensuring a sustainable competitive advantage in a competitive environment.")},
+        {"type": "paragraph", "content": (
+            "Strategic direction refers to the actionable plans an organization adopts to achieve "
+            "its long-term goals and vision. It aligns resources, operations, and people toward common "
+            "objectives, ensuring the organization thrives in a competitive environment. After analyzing "
+            "internal strengths, external opportunities, and industry competition, leaders must choose a "
+            "strategic direction that builds a **sustainable competitive advantage**—a unique position "
+            "that competitors cannot easily replicate."
+         )},
+        {"type": "summary", "content": (
+            "Strategic direction is crucial for aligning an organization's resources and operations "
+            "towards long-term goals, ensuring a sustainable competitive advantage in a competitive environment."
+         )},
         {"type": "heading", "content": "Porter’s Generic Strategies"},
         {"type": "paragraph", "content": "Michael Porter’s framework identifies three primary strategies for gaining competitive advantage:"},
         {"type": "numbered", "content": [
@@ -182,13 +250,19 @@ if __name__ == '__main__':
             "**Differentiation**: Offering unique products/services that justify premium pricing.",
             "**Focus Strategy**: Targets a niche market segment through either cost focus or differentiation focus."
         ]},
-        {"type": "image", "content": ("A visual representation of Porter’s Generic Strategies showing Cost Leadership, Differentiation, "
-                                       "and Focus Strategy as distinct paths to competitive advantage in the hospitality industry.")},
-        {"type": "summary", "content": ("Porter’s Generic Strategies provide three paths to competitive advantage: Cost Leadership, "
-                                         "Differentiation, and Focus Strategy, each with distinct applications and implications in the hospitality industry.")},
+        {"type": "image", "content": (
+            "A visual representation of Porter’s Generic Strategies showing Cost Leadership, Differentiation, "
+            "and Focus Strategy as distinct paths to competitive advantage in the hospitality industry."
+        )},
+        {"type": "summary", "content": (
+            "Porter’s Generic Strategies provide three paths to competitive advantage: Cost Leadership, "
+            "Differentiation, and Focus Strategy, each with distinct applications and implications in the hospitality industry."
+        )},
         {"type": "heading", "content": "Bowman’s Strategy Clock: A Complementary Framework"},
-        {"type": "paragraph", "content": ("Bowman’s model expands on Porter by analyzing competitive strategies based on **price** and "
-                                         "**perceived value**. The eight positions help organizations avoid risky strategies and align with market needs.")},
+        {"type": "paragraph", "content": (
+            "Bowman’s model expands on Porter by analyzing competitive strategies based on **price** and "
+            "**perceived value**. The eight positions help organizations avoid risky strategies and align with market needs."
+        )},
         {"type": "bullet", "content": [
             "**Low Price/Low Value**: Risky; may lead to price wars.",
             "**Low Price**: Similar to cost leadership.",
@@ -199,16 +273,20 @@ if __name__ == '__main__':
             "**Increased Price/Low Value**: Guaranteed failure.",
             "**Standard/Commodity**: No competitive edge."
         ]},
-        {"type": "summary", "content": ("Bowman’s Strategy Clock offers a nuanced view of competitive strategies by linking price to perceived value, "
-                                         "helping organizations identify viable and risky positions in the market.")},
+        {"type": "summary", "content": (
+            "Bowman’s Strategy Clock offers a nuanced view of competitive strategies by linking price to perceived value, "
+            "helping organizations identify viable and risky positions in the market."
+        )},
         {"type": "heading", "content": "Key Takeaways"},
         {"type": "bullet", "content": [
             "**Porter** simplifies strategy into three paths, while **Bowman** provides granularity by linking price to value.",
             "A hotel chain might use cost leadership for budget brands and differentiation for luxury lines.",
             "Strategic pitfalls include over-reliance on cost-cutting eroding quality and excessive differentiation alienating price-sensitive customers."
         ]},
-        {"type": "summary", "content": ("Evaluating Porter’s and Bowman’s models enables hospitality organizations to choose a strategic direction "
-                                         "that leverages their strengths and meets market demands for lasting advantage.")},
+        {"type": "summary", "content": (
+            "Evaluating Porter’s and Bowman’s models enables hospitality organizations to choose a strategic direction "
+            "that leverages their strengths and meets market demands for lasting advantage."
+        )},
         {"type": "questions", "content": [
             "How does cost leadership differ from differentiation in Porter’s Generic Strategies?",
             "What are the risks associated with the Increased Price/Standard Value position in Bowman’s Strategy Clock?",
