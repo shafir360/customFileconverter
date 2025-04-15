@@ -12,7 +12,7 @@ ALLOWED_EXTENSIONS = {'pptx'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 def allowed_file(filename):
-    """Check if the uploaded file has an allowed extension (pptx)."""
+    """Check if the uploaded file has an allowed extension (pptx). """
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def extract_text_from_pptx_markdown(file_path):
