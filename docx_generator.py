@@ -142,6 +142,8 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
     # Add the document title as a top-level heading (level 0)
     doc.add_heading(json_obj.get("title", "Document"), level=0)
 
+    image_count = 0  # <-- NEW: Initialize image counter.
+
     for section in json_obj.get("sections", []):
         section_type = section.get("type", "").lower()
         content = section.get("content", "")
@@ -188,29 +190,36 @@ def build_word_document(json_obj, output_filename="generated_document.docx", inc
             else:
                 doc.add_paragraph("Table data not in expected format.")
         elif section_type == "image":
-            # Process image only if include_images is True and a webhook_url is provided.
-            if include_images and webhook_url:
-                try:
-                    # Generate and download the image from the webhook.
-                    image_filename = generate_image_from_prompt(content, webhook_url)
-                    
-                    # Use a with-statement to open the image and get dimensions, then ensure it is closed.
-                    max_width = 6.0  # Maximum width in inches.
-                    with PILImage.open(image_filename) as im:
-                        dpi = im.info.get("dpi", (96, 96))[0]  # Default to 96 DPI if not available.
-                        natural_width = im.size[0] / dpi  # Width in inches.
-                        width_inches = max_width if natural_width > max_width else natural_width
-                    
-                    # Insert the image with the width constraint.
-                    doc.add_picture(image_filename, width=Inches(width_inches))
-                    # Add a caption below the image using the original prompt as caption.
-                    doc.add_paragraph(content, style="Caption")
-                    # Remove the temporary image file.
-                    os.remove(image_filename)
-                except Exception as e:
-                    if report_image_errors:
-                        doc.add_paragraph("Image could not be generated: " + str(e))
-                    # Otherwise, silently skip the image.
+            # Enforce maximum of 3 images.
+            if image_count < 3:
+                if include_images and webhook_url:
+                    try:
+                        # Generate and download the image from the webhook.
+                        image_filename = generate_image_from_prompt(content, webhook_url)
+                        
+                        # Use a with-statement to open the image and get dimensions.
+                        max_width = 6.0  # Maximum width in inches.
+                        with PILImage.open(image_filename) as im:
+                            dpi = im.info.get("dpi", (96, 96))[0]  # Default DPI.
+                            natural_width = im.size[0] / dpi  # Width in inches.
+                            width_inches = max_width if natural_width > max_width else natural_width
+                        
+                        # Insert the image with the specified width.
+                        doc.add_picture(image_filename, width=Inches(width_inches))
+                        # Add a caption below the image using the prompt.
+                        doc.add_paragraph(content, style="Caption")
+                        # Remove the temporary image file.
+                        os.remove(image_filename)
+                        
+                        image_count += 1  # <-- NEW: Increment the count after a successful image insertion.
+                    except Exception as e:
+                        if report_image_errors:
+                            doc.add_paragraph("Image could not be generated: " + str(e))
+                # If include_images is False or no webhook_url, the image block is skipped.
+            else:
+                # OPTIONAL: When max images reached, add a note if error reporting is enabled.
+                if report_image_errors:
+                    doc.add_paragraph("Image skipped: maximum number of 3 images reached.")
         elif section_type == "summary":
             para = doc.add_paragraph()
             run = para.add_run(content)
