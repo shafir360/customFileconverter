@@ -87,33 +87,31 @@ def generate_docx():
 @app.route('/health-check', methods=['POST'])
 def health_check():
     """
-    Expects JSON:
-      {
-        "url": "<full target URL>"
-      }
-    Sends an empty POST to that URL and returns {"status": "ok"} if it comes back 200.
-    """
-    if not request.is_json:
-        return jsonify({'error': 'Request must be JSON with a "url" field'}), 400
+    Usage:
+      POST /health-check?url=https://example.com/endpoint
+      (empty body)
 
-    payload = request.get_json()
-    url = payload.get('url')
+    Sends an empty POST to that URL and returns 200/{"status":"ok"} if it returns HTTP 200.
+    """
+    # grab the target URL from the query string
+    url = request.args.get('url')
     if not url:
-        return jsonify({'error': 'Missing "url" in request body'}), 400
+        return jsonify({'error': 'Missing "url" query parameter'}), 400
 
     try:
-        # Send an empty POST
+        # fire off an empty POST
         resp = requests.post(url, timeout=5)
-        if resp.status_code == 200:
-            return jsonify({'status': 'ok'}), 200
-        else:
-            return jsonify({
-                'status': 'failed',
-                'code': resp.status_code,
-                'message': resp.text
-            }), 502
     except requests.RequestException as e:
-        return jsonify({'error': f'Connection failed: {e}'}), 502
+        return jsonify({'status': 'failed', 'error': f'Connection error: {e}'}), 502
+
+    if resp.status_code == 200:
+        return jsonify({'status': 'ok'}), 200
+    else:
+        return jsonify({
+            'status': 'failed',
+            'code': resp.status_code,
+            'message': resp.text
+        }), 502
 
 @app.route('/')
 def index():
