@@ -87,31 +87,11 @@ def generate_docx():
 @app.route('/health-check', methods=['POST'])
 def health_check():
     """
-    Usage:
-      POST /health-check?url=https://example.com/endpoint
-      (empty body)
-
-    Sends an empty POST to that URL and returns 200/{"status":"ok"} if it returns HTTP 200.
+    Simple empty‐body health check.
+    Responds 200 + {"status":"ok"} to any POST (body ignored).
     """
-    # grab the target URL from the query string
-    url = request.args.get('url')
-    if not url:
-        return jsonify({'error': 'Missing "url" query parameter'}), 400
+    return jsonify({'status': 'ok'}), 200
 
-    try:
-        # fire off an empty POST
-        resp = requests.post(url, timeout=5)
-    except requests.RequestException as e:
-        return jsonify({'status': 'failed', 'error': f'Connection error: {e}'}), 502
-
-    if resp.status_code == 200:
-        return jsonify({'status': 'ok'}), 200
-    else:
-        return jsonify({
-            'status': 'failed',
-            'code': resp.status_code,
-            'message': resp.text
-        }), 502
 
 @app.route('/')
 def index():
