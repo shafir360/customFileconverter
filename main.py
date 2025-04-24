@@ -18,7 +18,7 @@ def extract_text():
 
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
+        return jsonify({'error': 'No selected file.'}), 400
 
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
