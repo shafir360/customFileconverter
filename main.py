@@ -83,61 +83,37 @@ def generate_docx():
     
 
 
-def is_url_reachable(url, timeout=5):
-    """
-    Returns True if a HEAD request to `url` succeeds with a 2xx or 3xx status.
-    """
-    try:
-        resp = requests.head(url, timeout=timeout)
-        return resp.status_code < 400
-    except requests.RequestException:
-        return False
 
-
-
-@app.route('/check-connection', methods=['POST'])
-def check_connection():
+@app.route('/health-check', methods=['POST'])
+def health_check():
     """
     Expects JSON:
       {
-        "url": "<full target URL>",
-        "data": { ... }            # JSON body to POST if reachable
+        "url": "<full target URL>"
       }
-    First does a HEAD to the URL; if that fails, returns 502.
-    Otherwise does a POST(url, json=data) and streams back the response.
+    Sends an empty POST to that URL and returns {"status": "ok"} if it comes back 200.
     """
     if not request.is_json:
-        return jsonify({'error': 'Request must be JSON with "url" and "data"'}), 400
+        return jsonify({'error': 'Request must be JSON with a "url" field'}), 400
 
     payload = request.get_json()
     url = payload.get('url')
-    data = payload.get('data')
-
     if not url:
         return jsonify({'error': 'Missing "url" in request body'}), 400
 
-    # 1) check reachability
-    if not is_url_reachable(url):
-        return jsonify({'error': f'Cannot reach {url}'}), 502
-
-    # 2) send the data
     try:
-        resp = requests.post(url, json=data, timeout=10)
-        resp.raise_for_status()
+        # Send an empty POST
+        resp = requests.post(url, timeout=5)
+        if resp.status_code == 200:
+            return jsonify({'status': 'ok'}), 200
+        else:
+            return jsonify({
+                'status': 'failed',
+                'code': resp.status_code,
+                'message': resp.text
+            }), 502
     except requests.RequestException as e:
-        return jsonify({'error': f'Error sending data to {url}: {str(e)}'}), 502
-
-    # 3) return whatever the remote service returned
-    try:
-        # if JSON, forward it
-        return jsonify({
-            'status': 'success',
-            'remote_status_code': resp.status_code,
-            'remote_response': resp.json()
-        }), 200
-    except ValueError:
-        # non-JSON response
-        return (resp.text, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'text/plain')})
+        return jsonify({'error': f'Connection failed: {e}'}), 502
 
 @app.route('/')
 def index():
