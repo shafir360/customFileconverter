@@ -3,6 +3,7 @@ from flask import Flask, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 from pptx_utils import allowed_file, extract_text_from_pptx_markdown
 from docx_generator import build_word_document  # Import our business logic for document generation
+import requests
 
 app = Flask(__name__)
 
@@ -79,6 +80,64 @@ def generate_docx():
 
     except Exception as e:
         return jsonify({'error': f'Error generating document: {str(e)}'}), 500
+    
+
+
+def is_url_reachable(url, timeout=5):
+    """
+    Returns True if a HEAD request to `url` succeeds with a 2xx or 3xx status.
+    """
+    try:
+        resp = requests.head(url, timeout=timeout)
+        return resp.status_code < 400
+    except requests.RequestException:
+        return False
+
+
+
+@app.route('/check-connection', methods=['POST'])
+def check_connection():
+    """
+    Expects JSON:
+      {
+        "url": "<full target URL>",
+        "data": { ... }            # JSON body to POST if reachable
+      }
+    First does a HEAD to the URL; if that fails, returns 502.
+    Otherwise does a POST(url, json=data) and streams back the response.
+    """
+    if not request.is_json:
+        return jsonify({'error': 'Request must be JSON with "url" and "data"'}), 400
+
+    payload = request.get_json()
+    url = payload.get('url')
+    data = payload.get('data')
+
+    if not url:
+        return jsonify({'error': 'Missing "url" in request body'}), 400
+
+    # 1) check reachability
+    if not is_url_reachable(url):
+        return jsonify({'error': f'Cannot reach {url}'}), 502
+
+    # 2) send the data
+    try:
+        resp = requests.post(url, json=data, timeout=10)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        return jsonify({'error': f'Error sending data to {url}: {str(e)}'}), 502
+
+    # 3) return whatever the remote service returned
+    try:
+        # if JSON, forward it
+        return jsonify({
+            'status': 'success',
+            'remote_status_code': resp.status_code,
+            'remote_response': resp.json()
+        }), 200
+    except ValueError:
+        # non-JSON response
+        return (resp.text, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'text/plain')})
 
 @app.route('/')
 def index():
